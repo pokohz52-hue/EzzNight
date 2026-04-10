@@ -1,5 +1,5 @@
 -- ==========================================
---  E Z Z  F L I C K  v1.5 (DRAG & GREEN)
+--  E Z Z  F L I C K  v1.6 (HIGHLIGHT ESP)
 --  Сделал @MrFixTop
 -- ==========================================
 
@@ -15,7 +15,7 @@ local Settings = {
     ESP = false,
     FOV = 300,
     Smoothing = 0.08,
-    BoxColor = Color3.fromRGB(0, 255, 0)
+    Color = Color3.fromRGB(0, 255, 0) -- Ярко-зеленый
 }
 
 if CoreGui:FindFirstChild("EzzFlick") then CoreGui.EzzFlick:Destroy() end
@@ -32,13 +32,13 @@ Main.BorderSizePixel = 0
 Main.Active = true
 
 local Stroke = Instance.new("UIStroke", Main)
-Stroke.Color = Color3.fromRGB(0, 255, 0)
+Stroke.Color = Settings.Color
 Stroke.Thickness = 1.5
 
 local Title = Instance.new("TextButton", Main)
 Title.Size = UDim2.new(1, 0, 0, 35)
 Title.BackgroundColor3 = Color3.fromRGB(0, 50, 0)
-Title.Text = "EZZ FLICK | DRAGGABLE"
+Title.Text = "EZZ FLICK | HIGHLIGHT"
 Title.TextColor3 = Color3.new(1, 1, 1)
 Title.Font = Enum.Font.RobotoMono
 Title.TextSize = 14
@@ -50,41 +50,50 @@ List.Size = UDim2.new(1, -20, 1, -60)
 List.BackgroundTransparency = 1
 Instance.new("UIListLayout", List).Padding = UDim.new(0, 5)
 
--- [ ЛОГИКА ПЕРЕТАСКИВАНИЯ (DRAG FIX) ]
+-- [ ЛОГИКА ПЕРЕТАСКИВАНИЯ ]
 local dragging, dragInput, dragStart, startPos
-
-local function update(input)
-    local delta = input.Position - dragStart
-    Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
-end
-
 Title.InputBegan:Connect(function(input)
     if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-        dragging = true
-        dragStart = input.Position
-        startPos = Main.Position
-        
-        input.Changed:Connect(function()
-            if input.UserInputState == Enum.UserInputState.End then
-                dragging = false
-            end
-        end)
+        dragging = true; dragStart = input.Position; startPos = Main.Position
+        input.Changed:Connect(function() if input.UserInputState == Enum.UserInputState.End then dragging = false end end)
     end
 end)
-
-Title.InputChanged:Connect(function(input)
-    if input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch then
-        dragInput = input
-    end
-end)
-
 UserInputService.InputChanged:Connect(function(input)
-    if input == dragInput and dragging then
-        update(input)
+    if dragging and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
+        local delta = input.Position - dragStart
+        Main.Position = UDim2.new(startPos.X.Scale, startPos.X.Offset + delta.X, startPos.Y.Scale, startPos.Y.Offset + delta.Y)
     end
 end)
 
--- [ ЛОГИКА ЧИТОВ ]
+-- [ ФУНКЦИЯ ВХ (HIGHLIGHT) ]
+local function ApplyESP(player)
+    if player == LocalPlayer then return end
+    
+    local function addHighlight(char)
+        if not char then return end
+        local highlight = char:FindFirstChild("EzzHighlight")
+        if not highlight then
+            highlight = Instance.new("Highlight")
+            highlight.Name = "EzzHighlight"
+            highlight.Parent = char
+            highlight.FillColor = Settings.Color
+            highlight.FillTransparency = 0.5 -- Прозрачность заливки
+            highlight.OutlineColor = Color3.new(1, 1, 1) -- Белая обводка для четкости
+            highlight.OutlineTransparency = 0
+            highlight.Adornee = char
+            highlight.Enabled = Settings.ESP
+        end
+    end
+
+    player.CharacterAdded:Connect(addHighlight)
+    if player.Character then addHighlight(player.Character) end
+end
+
+-- Включаем для всех текущих игроков
+for _, p in pairs(Players:GetPlayers()) do ApplyESP(p) end
+Players.PlayerAdded:Connect(ApplyESP)
+
+-- [ ЛОГИКА ]
 local function IsVisible(part)
     local params = RaycastParams.new()
     params.FilterType = Enum.RaycastFilterType.Exclude
@@ -99,31 +108,19 @@ RunService.RenderStepped:Connect(function()
 
     for _, player in pairs(Players:GetPlayers()) do
         if player ~= LocalPlayer and player.Character then
-            local head = player.Character:FindFirstChild("Head")
-            local hrp = player.Character:FindFirstChild("HumanoidRootPart")
-            
-            if head and hrp then
-                -- ESP
-                local box = hrp:FindFirstChild("EzzBox")
-                if Settings.ESP then
-                    if not box then
-                        local b = Instance.new("BoxHandleAdornment", hrp)
-                        b.Name = "EzzBox"; b.AlwaysOnTop = true; b.Adornee = hrp
-                        b.Color3 = Settings.BoxColor; b.Size = Vector3.new(4, 6, 0.5); b.Transparency = 0.5
-                    end
-                else
-                    if box then box:Destroy() end
-                end
+            -- Обновление состояния ВХ
+            local highlight = player.Character:FindFirstChild("EzzHighlight")
+            if highlight then highlight.Enabled = Settings.ESP end
 
-                -- AIMBOT
-                if Settings.Aimbot then
-                    local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
-                    if onScreen and IsVisible(head) then
-                        local dist = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
-                        if dist < shortestDist then
-                            closestTarget = head
-                            shortestDist = dist
-                        end
+            -- Аимбот
+            local head = player.Character:FindFirstChild("Head")
+            local hum = player.Character:FindFirstChild("Humanoid")
+            if head and hum and hum.Health > 0 then
+                local pos, onScreen = Camera:WorldToViewportPoint(head.Position)
+                if onScreen and IsVisible(head) then
+                    local dist = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
+                    if dist < shortestDist then
+                        closestTarget = head; shortestDist = dist
                     end
                 end
             end
@@ -131,8 +128,7 @@ RunService.RenderStepped:Connect(function()
     end
 
     if Settings.Aimbot and closestTarget then
-        local lookAt = CFrame.new(Camera.CFrame.Position, closestTarget.Position)
-        Camera.CFrame = Camera.CFrame:Lerp(lookAt, Settings.Smoothing)
+        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, closestTarget.Position), Settings.Smoothing)
     end
 end)
 
@@ -154,16 +150,14 @@ local function CreateToggle(text, field)
 end
 
 CreateToggle("Legit Aim", "Aimbot")
-CreateToggle("Green ESP", "ESP")
+CreateToggle("Green Highlight", "ESP")
 
--- Сворачивание (Двойной клик или просто нажатие)
+-- Сворачивание
 local min = false
 Title.MouseButton1Click:Connect(function()
-    if not dragging then -- Чтобы не сворачивалось во время перетаскивания
+    if not dragging then
         min = not min
         Main:TweenSize(min and UDim2.new(0, 220, 0, 35) or UDim2.new(0, 220, 0, 260), "Out", "Quart", 0.3, true)
         List.Visible = not min
     end
 end)
-
-game.StarterGui:SetCore("SendNotification", {Title = "Ezz Flick", Text = "By @MrFixTop | Drag Enabled", Duration = 3})
