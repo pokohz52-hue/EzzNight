@@ -1,165 +1,160 @@
 -- ==========================================
---  E Z Z  F L I C K  [CLEAN VERSION]
---  Only: AIMBOT, ESP, SPECTATORS
+--  E Z Z  F L I C K  v19.0 [AUTO-BUTTON]
+--  Feature: Auto-Clicker for Lobby Buttons
+--  Aim: Snappy Jitter + God Prediction
 -- ==========================================
 
 local Players = game:GetService("Players")
 local RunService = game:GetService("RunService")
 local UserInputService = game:GetService("UserInputService")
 local CoreGui = game:GetService("CoreGui")
+local VIM = game:GetService("VirtualInputManager")
+
 local LocalPlayer = Players.LocalPlayer
+local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 local Camera = workspace.CurrentCamera
 
 local Settings = {
-    Aimbot = false,
-    ESP = false,
-    SpecAlert = true,
-    FOV = 250,
-    Smoothing = 0.2, -- Поправил плавность
-    Color = Color3.fromRGB(0, 255, 0)
+    Active = false,
+    Shoot = false,
+    FOV = 450,
+    Prediction = 0.18,
+    AutoClick = true, -- Авто-нажатие кнопок
+    ESP = true
 }
 
-if CoreGui:FindFirstChild("EzzFlick") then CoreGui.EzzFlick:Destroy() end
+local rayParams = RaycastParams.new()
+rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
-local ScreenGui = Instance.new("ScreenGui", CoreGui)
-ScreenGui.Name = "EzzFlick"
-
--- ОСНОВНОЕ МЕНЮ
-local Main = Instance.new("Frame", ScreenGui)
-Main.Size = UDim2.new(0, 200, 0, 220)
-Main.Position = UDim2.new(0.5, -100, 0.5, -110)
-Main.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-Main.BorderSizePixel = 0
-Main.Active = true
-Instance.new("UIStroke", Main).Color = Settings.Color
-
-local Title = Instance.new("TextButton", Main)
-Title.Size = UDim2.new(1, 0, 0, 35)
-Title.BackgroundColor3 = Color3.fromRGB(0, 50, 0)
-Title.Text = "EZZ FLICK | LEGIT"
-Title.TextColor3 = Color3.new(1, 1, 1)
-Title.Font = Enum.Font.RobotoMono
-Title.TextSize = 14
-
--- ОКНО СПЕКТАТОРОВ
-local SpecFrame = Instance.new("Frame", ScreenGui)
-SpecFrame.Size = UDim2.new(0, 180, 0, 100)
-SpecFrame.Position = UDim2.new(0, 20, 0.5, -50)
-SpecFrame.BackgroundColor3 = Color3.fromRGB(15, 15, 15)
-SpecFrame.BorderSizePixel = 0
-Instance.new("UIStroke", SpecFrame).Color = Color3.fromRGB(255, 0, 0)
-
-local SpecTitle = Instance.new("TextLabel", SpecFrame)
-SpecTitle.Size = UDim2.new(1, 0, 0, 25)
-SpecTitle.BackgroundColor3 = Color3.fromRGB(50, 0, 0)
-SpecTitle.Text = "WATCHING YOU:"
-SpecTitle.TextColor3 = Color3.new(1, 1, 1)
-SpecTitle.Font = Enum.Font.SourceSansBold
-
-local SpecList = Instance.new("TextLabel", SpecFrame)
-SpecList.Size = UDim2.new(1, -10, 1, -30)
-SpecList.Position = UDim2.new(0, 5, 0, 30)
-SpecList.BackgroundTransparency = 1
-SpecList.Text = "Nobody"
-SpecList.TextColor3 = Color3.new(0.8, 0.8, 0.8)
-SpecList.TextYAlignment = Enum.TextYAlignment.Top
-
-local List = Instance.new("Frame", Main)
-List.Position = UDim2.new(0, 10, 0, 45)
-List.Size = UDim2.new(1, -20, 1, -55)
-List.BackgroundTransparency = 1
-Instance.new("UIListLayout", List).Padding = UDim.new(0, 5)
-
--- [ ЛОГИКА ]
-local function IsVisible(part)
-    local obs = Camera:GetPartsObscuringTarget({part.Position}, {LocalPlayer.Character, part.Parent})
-    return #obs == 0
-end
-
-local function GetTarget()
-    local target, dist = nil, Settings.FOV
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Humanoid") and p.Character.Humanoid.Health > 0 then
-            local part = p.Character:FindFirstChild("Head") or p.Character:FindFirstChild("HumanoidRootPart")
-            if part then
-                local pos, vis = Camera:WorldToViewportPoint(part.Position)
-                if vis and IsVisible(part) then
-                    local mag = (Vector2.new(pos.X, pos.Y) - Vector2.new(Camera.ViewportSize.X/2, Camera.ViewportSize.Y/2)).Magnitude
-                    if mag < dist then target = part; dist = mag end
+-- [ УМНЫЙ ПОИСК И КЛИК ПО КНОПКЕ ]
+local function ClickLobbyButtons()
+    if not Settings.AutoClick then return end
+    
+    -- Ищем по всем GUI игрока
+    for _, gui in pairs(PlayerGui:GetChildren()) do
+        if gui:IsA("ScreenGui") and gui.Enabled then
+            for _, btn in pairs(gui:GetDescendants()) do
+                if btn:IsA("TextButton") and btn.Visible and btn.TextBounds.X > 0 then
+                    local text = btn.Text:lower()
+                    -- Список триггеров для нажатия
+                    if text:find("play") or text:find("start") or text:find("spawn") or 
+                       text:find("играть") or text:find("начать") or text:find("готов") or 
+                       text:find("ready") then
+                        
+                        -- Кликаем в центр кнопки
+                        local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
+                        VIM:SendMouseButtonEvent(pos.X, pos.Y + 36, 0, true, game, 0)
+                        VIM:SendMouseButtonEvent(pos.X, pos.Y + 36, 0, false, game, 0)
+                    end
                 end
             end
         end
     end
-    return target
 end
 
--- [ ЦИКЛ ]
-RunService.RenderStepped:Connect(function(dt)
-    -- Спектаторы
-    local specs = {}
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and not p.Character then table.insert(specs, p.Name) end
-    end
-    SpecList.Text = #specs == 0 and "Nobody" or table.concat(specs, "\n")
-    SpecFrame.Visible = Settings.SpecAlert
+-- [ ПРОВЕРКА ВИДИМОСТИ ]
+local function IsVisible(part)
+    if not part or not part.Parent then return false end
+    rayParams.FilterDescendantsInstances = {LocalPlayer.Character, part.Parent}
+    local res = workspace:Raycast(Camera.CFrame.Position, part.Position - Camera.CFrame.Position, rayParams)
+    return res == nil
+end
 
-    -- ВХ (ESP)
+-- [ ГЛАВНЫЙ ЦИКЛ ]
+RunService.RenderStepped:Connect(function()
+    if not Settings.Active then return end
+    
+    local char = LocalPlayer.Character
+    local hum = char and char:FindFirstChild("Humanoid")
+    local root = char and char:FindFirstChild("HumanoidRootPart")
+    
+    -- 1. ЛОГИКА ЛОББИ (Если нет персонажа или ХП на нуле)
+    if not hum or hum.Health <= 0 then
+        ClickLobbyButtons()
+        return 
+    end
+
+    -- 2. ПОИСК ЦЕЛИ (AIMBOT)
+    local target = nil
+    local minDist = Settings.FOV
     for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character then
-            local hi = p.Character:FindFirstChild("EzzHighlight") or Instance.new("Highlight", p.Character)
-            hi.Name = "EzzHighlight"
-            hi.Enabled = Settings.ESP
-            hi.FillColor = Settings.Color
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Head") and p.Character.Humanoid.Health > 0 then
+            local head = p.Character.Head
+            local _, vis = Camera:WorldToViewportPoint(head.Position)
+            if vis and IsVisible(head) then
+                local mag = (head.Position - root.Position).Magnitude
+                if mag < minDist then target = head; minDist = mag end
+            end
         end
     end
 
-    -- АИМБОТ (Поправленный)
-    if Settings.Aimbot then
-        local t = GetTarget()
-        if t then
-            local targetPos = CFrame.new(Camera.CFrame.Position, t.Position)
-            Camera.CFrame = Camera.CFrame:Lerp(targetPos, Settings.Smoothing)
+    -- 3. ПОВЕДЕНИЕ В БОЮ
+    if target then
+        local vel = target.Parent.HumanoidRootPart.Velocity
+        local predPos = target.Position + (vel * Settings.Prediction)
+        local jitter = Vector3.new(math.random(-2,2), math.random(-2,2), math.random(-2,2))/45
+        
+        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, predPos + jitter), 0.25)
+        
+        if Settings.Shoot then
+            VIM:SendMouseButtonEvent(0,0,0,true,game,0)
+            VIM:SendMouseButtonEvent(0,0,0,false,game,0)
+        end
+        hum:Move(root.CFrame:VectorToObjectSpace((target.Position - root.Position).Unit), true)
+    else
+        -- Если боя нет, всё равно проверяем кнопки (вдруг вылезло меню)
+        ClickLobbyButtons()
+        
+        -- Свободное движение (Лидар)
+        rayParams.FilterDescendantsInstances = {char}
+        local wall = workspace:Raycast(root.Position, root.CFrame.LookVector * 6, rayParams)
+        if wall then 
+            root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(45), 0)
+        end
+    end
+
+    -- ESP (Перевернутые ромбы)
+    if Settings.ESP then
+        for _, p in pairs(Players:GetPlayers()) do
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Head") then
+                if not p.Character:FindFirstChild("EzzDiamond") then
+                    local b = Instance.new("BillboardGui", p.Character)
+                    b.Name = "EzzDiamond"; b.Size = UDim2.new(3,0,3,0); b.AlwaysOnTop = true
+                    local f = Instance.new("Frame", b)
+                    f.Size = UDim2.new(0.5,0,0.5,0); f.Position = UDim2.new(0.25,0,0.25,0); f.Rotation = 45; f.BackgroundColor3 = Color3.new(1,0,0.2)
+                    Instance.new("UIStroke", f).Color = Color3.new(1,1,1)
+                end
+            end
         end
     end
 end)
 
--- [ КНОПКИ ]
-local function AddToggle(text, field)
-    local btn = Instance.new("TextButton", List)
-    btn.Size = UDim2.new(1, 0, 0, 35)
-    btn.BackgroundColor3 = Color3.fromRGB(30, 30, 30)
-    btn.Text = text .. ": OFF"
-    btn.TextColor3 = Color3.new(1, 1, 1)
-    btn.Font = Enum.Font.SourceSansBold
-    Instance.new("UICorner", btn)
-    
-    btn.MouseButton1Click:Connect(function()
-        Settings[field] = not Settings[field]
-        btn.Text = text .. (Settings[field] and ": ON" or ": OFF")
-        btn.BackgroundColor3 = Settings[field] and Color3.fromRGB(0, 120, 0) or Color3.fromRGB(30, 30, 30)
+-- [ ИНТЕРФЕЙС ]
+if CoreGui:FindFirstChild("EzzClickV19") then CoreGui.EzzClickV19:Destroy() end
+local sg = Instance.new("ScreenGui", CoreGui); sg.Name = "EzzClickV19"
+local m = Instance.new("Frame", sg)
+m.Size = UDim2.new(0, 200, 0, 250); m.Position = UDim2.new(0.5, -100, 0.5, -125); m.BackgroundColor3 = Color3.new(0,0,0)
+Instance.new("UIStroke", m).Color = Color3.fromRGB(0, 255, 120)
+
+local l = Instance.new("Frame", m); l.Position = UDim2.new(0,10,0,45); l.Size = UDim2.new(1,-20,1,-55); l.BackgroundTransparency = 1
+Instance.new("UIListLayout", l).Padding = UDim.new(0,5)
+
+local function AddT(txt, f)
+    local b = Instance.new("TextButton", l); b.Size = UDim2.new(1,0,0,40); b.BackgroundColor3 = Color3.new(0.1,0.1,0.1); b.Text = txt .. ": OFF"; b.TextColor3 = Color3.new(1,1,1)
+    b.MouseButton1Click:Connect(function()
+        Settings[f] = not Settings[f]
+        b.Text = txt .. (Settings[f] and ": ON" or ": OFF")
+        b.BackgroundColor3 = Settings[f] and Color3.fromRGB(0, 150, 80) or Color3.new(0.1,0.1,0.1)
     end)
 end
 
-AddToggle("Aimbot", "Aimbot")
-AddToggle("ESP (WH)", "ESP")
-AddToggle("Spectators", "SpecAlert")
+AddT("AI ACTIVE", "Active")
+AddT("AUTO-SHOOT", "Shoot")
+AddT("AUTO-CLICK", "AutoClick")
+AddT("DIAMOND ESP", "ESP")
 
--- ПЕРЕТАСКИВАНИЕ
-local function Drag(f, h)
-    local d, i, s, p
-    h.InputBegan:Connect(function(input)
-        if input.UserInputType == Enum.UserInputType.MouseButton1 or input.UserInputType == Enum.UserInputType.Touch then
-            d = true; s = input.Position; p = f.Position
-        end
-    end)
-    UserInputService.InputChanged:Connect(function(input)
-        if d and (input.UserInputType == Enum.UserInputType.MouseMovement or input.UserInputType == Enum.UserInputType.Touch) then
-            local delta = input.Position - s
-            f.Position = UDim2.new(p.X.Scale, p.X.Offset + delta.X, p.Y.Scale, p.Y.Offset + delta.Y)
-        end
-    end)
-    UserInputService.InputEnded:Connect(function(input) d = false end)
-end
-
-Drag(Main, Title)
-Drag(SpecFrame, SpecTitle)
+-- Drag
+local d, s, p
+m.InputBegan:Connect(function(i) if i.UserInputType == Enum.UserInputType.MouseButton1 or i.UserInputType == Enum.UserInputType.Touch then d = true s = i.Position p = m.Position end end)
+UserInputService.InputChanged:Connect(function(i) if d and (i.UserInputType == Enum.UserInputType.MouseMovement or i.UserInputType == Enum.UserInputType.Touch) then local delta = i.Position - s m.Position = UDim2.new(p.X.Scale, p.X.Offset + delta.X, p.Y.Scale, p.Y.Offset + delta.Y) end end)
+UserInputService.InputEnded:Connect(function() d = false end)
