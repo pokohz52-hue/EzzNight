@@ -1,7 +1,8 @@
 -- ==========================================
---  E Z Z  F L I C K  v19.0 [AUTO-BUTTON]
---  Feature: Auto-Clicker for Lobby Buttons
---  Aim: Snappy Jitter + God Prediction
+--  E Z Z  F L I C K  v15.0 [SPIN-SENSE]
+--  Logic: Spin-search in tight spaces
+--  Focus: 100% Kill Priority over Walls
+--  ESP: Reverse Diamond Fix
 -- ==========================================
 
 local Players = game:GetService("Players")
@@ -11,46 +12,19 @@ local CoreGui = game:GetService("CoreGui")
 local VIM = game:GetService("VirtualInputManager")
 
 local LocalPlayer = Players.LocalPlayer
-local PlayerGui = LocalPlayer:WaitForChild("PlayerGui")
 local Camera = workspace.CurrentCamera
 
 local Settings = {
     Active = false,
     Shoot = false,
-    FOV = 450,
-    Prediction = 0.18,
-    AutoClick = true, -- Авто-нажатие кнопок
+    FOV = 500,
+    Jitter = 3,
     ESP = true
 }
 
+local LockedTarget = nil
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
-
--- [ УМНЫЙ ПОИСК И КЛИК ПО КНОПКЕ ]
-local function ClickLobbyButtons()
-    if not Settings.AutoClick then return end
-    
-    -- Ищем по всем GUI игрока
-    for _, gui in pairs(PlayerGui:GetChildren()) do
-        if gui:IsA("ScreenGui") and gui.Enabled then
-            for _, btn in pairs(gui:GetDescendants()) do
-                if btn:IsA("TextButton") and btn.Visible and btn.TextBounds.X > 0 then
-                    local text = btn.Text:lower()
-                    -- Список триггеров для нажатия
-                    if text:find("play") or text:find("start") or text:find("spawn") or 
-                       text:find("играть") or text:find("начать") or text:find("готов") or 
-                       text:find("ready") then
-                        
-                        -- Кликаем в центр кнопки
-                        local pos = btn.AbsolutePosition + (btn.AbsoluteSize / 2)
-                        VIM:SendMouseButtonEvent(pos.X, pos.Y + 36, 0, true, game, 0)
-                        VIM:SendMouseButtonEvent(pos.X, pos.Y + 36, 0, false, game, 0)
-                    end
-                end
-            end
-        end
-    end
-end
 
 -- [ ПРОВЕРКА ВИДИМОСТИ ]
 local function IsVisible(part)
@@ -60,98 +34,133 @@ local function IsVisible(part)
     return res == nil
 end
 
--- [ ГЛАВНЫЙ ЦИКЛ ]
+-- [ ЛИДАР С ДЕТЕКТОРОМ ЗАМКНУТОГО ПРОСТРАНСТВА ]
+local function AnalyzeSpace()
+    local char = LocalPlayer.Character
+    if not char then return nil, 0 end
+    local root = char.HumanoidRootPart
+    rayParams.FilterDescendantsInstances = {char}
+    
+    local freeSectors = 0
+    local bestDir = root.CFrame.LookVector
+    local maxD = 0
+    
+    for i = 1, 12 do
+        local angle = math.rad(i * 30)
+        local dir = Vector3.new(math.sin(angle), 0, math.cos(angle))
+        local res = workspace:Raycast(root.Position, dir * 15, rayParams)
+        local d = res and res.Distance or 15
+        
+        if d > 10 then freeSectors = freeSectors + 1 end
+        if d > maxD then maxD = d; bestDir = dir end
+    end
+    
+    -- Если свободных секторов мало (< 3), значит мы в "квадрате"
+    return bestDir, freeSectors
+end
+
+-- [ ОБНОВЛЕНИЕ ВХ (РОМБЫ) ]
+local function UpdateESP()
+    for _, p in pairs(Players:GetPlayers()) do
+        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("HumanoidRootPart") then
+            local root = p.Character.HumanoidRootPart
+            local gui = p.Character:FindFirstChild("EzzDiamond")
+            if Settings.ESP and p.Character.Humanoid.Health > 0 then
+                if not gui then
+                    gui = Instance.new("BillboardGui", p.Character)
+                    gui.Name = "EzzDiamond"; gui.Size = UDim2.new(3,0,3,0); gui.AlwaysOnTop = true
+                    local f = Instance.new("Frame", gui)
+                    f.Size = UDim2.new(0.6,0,0.6,0); f.Position = UDim2.new(0.2,0,0.2,0)
+                    f.Rotation = 45; f.BackgroundColor3 = Color3.new(1,0,0)
+                    f.BackgroundTransparency = 0.4; Instance.new("UIStroke", f).Color = Color3.new(1,1,1)
+                end
+            elseif gui then gui:Destroy() end
+        end
+    end
+end
+
+-- [ ЦИКЛ ВЫЖИВАНИЯ ]
 RunService.RenderStepped:Connect(function()
     if not Settings.Active then return end
+    UpdateESP()
     
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChild("Humanoid")
-    local root = char and char:FindFirstChild("HumanoidRootPart")
-    
-    -- 1. ЛОГИКА ЛОББИ (Если нет персонажа или ХП на нуле)
     if not hum or hum.Health <= 0 then
-        ClickLobbyButtons()
-        return 
+        VIM:SendKeyEvent(true, Enum.KeyCode.Space, false, game); task.wait(0.05)
+        VIM:SendKeyEvent(false, Enum.KeyCode.Space, false, game); return 
     end
+    local root = char.HumanoidRootPart
 
-    -- 2. ПОИСК ЦЕЛИ (AIMBOT)
-    local target = nil
-    local minDist = Settings.FOV
-    for _, p in pairs(Players:GetPlayers()) do
-        if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Head") and p.Character.Humanoid.Health > 0 then
-            local head = p.Character.Head
-            local _, vis = Camera:WorldToViewportPoint(head.Position)
-            if vis and IsVisible(head) then
-                local mag = (head.Position - root.Position).Magnitude
-                if mag < minDist then target = head; minDist = mag end
-            end
-        end
-    end
-
-    -- 3. ПОВЕДЕНИЕ В БОЮ
-    if target then
-        local vel = target.Parent.HumanoidRootPart.Velocity
-        local predPos = target.Position + (vel * Settings.Prediction)
-        local jitter = Vector3.new(math.random(-2,2), math.random(-2,2), math.random(-2,2))/45
-        
-        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, predPos + jitter), 0.25)
-        
-        if Settings.Shoot then
-            VIM:SendMouseButtonEvent(0,0,0,true,game,0)
-            VIM:SendMouseButtonEvent(0,0,0,false,game,0)
-        end
-        hum:Move(root.CFrame:VectorToObjectSpace((target.Position - root.Position).Unit), true)
-    else
-        -- Если боя нет, всё равно проверяем кнопки (вдруг вылезло меню)
-        ClickLobbyButtons()
-        
-        -- Свободное движение (Лидар)
-        rayParams.FilterDescendantsInstances = {char}
-        local wall = workspace:Raycast(root.Position, root.CFrame.LookVector * 6, rayParams)
-        if wall then 
-            root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(45), 0)
-        end
-    end
-
-    -- ESP (Перевернутые ромбы)
-    if Settings.ESP then
+    -- ПРИОРИТЕТ 1: ПОИСК ИГРОКА (ОТВЛЕКАЕМСЯ ТОЛЬКО НА НИХ)
+    if not LockedTarget or not IsVisible(LockedTarget) or LockedTarget.Parent.Humanoid.Health <= 0 then
+        LockedTarget = nil
+        local minDist = Settings.FOV
         for _, p in pairs(Players:GetPlayers()) do
-            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Head") then
-                if not p.Character:FindFirstChild("EzzDiamond") then
-                    local b = Instance.new("BillboardGui", p.Character)
-                    b.Name = "EzzDiamond"; b.Size = UDim2.new(3,0,3,0); b.AlwaysOnTop = true
-                    local f = Instance.new("Frame", b)
-                    f.Size = UDim2.new(0.5,0,0.5,0); f.Position = UDim2.new(0.25,0,0.25,0); f.Rotation = 45; f.BackgroundColor3 = Color3.new(1,0,0.2)
-                    Instance.new("UIStroke", f).Color = Color3.new(1,1,1)
+            if p ~= LocalPlayer and p.Character and p.Character:FindFirstChild("Head") and p.Character.Humanoid.Health > 0 then
+                local head = p.Character.Head
+                if IsVisible(head) then
+                    local _, onScr = Camera:WorldToViewportPoint(head.Position)
+                    if onScr then
+                        local mag = (head.Position - root.Position).Magnitude
+                        if mag < minDist then LockedTarget = head; minDist = mag end
+                    end
                 end
             end
         end
     end
+
+    -- ПРИОРИТЕТ 2: ДЕЙСТВИЕ
+    if LockedTarget then
+        -- РЕЖИМ УБИЙЦЫ: Плевать на стены, идем к цели
+        local jitter = Vector3.new(math.random(-5,5)/10, math.random(-5,5)/10, math.random(-5,5)/10) * Settings.Jitter
+        Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, LockedTarget.Position + jitter), 0.2)
+        
+        hum:Move(root.CFrame:VectorToObjectSpace((LockedTarget.Position - root.Position).Unit), true)
+        if Settings.Shoot then
+            VIM:SendMouseButtonEvent(0,0,0,true,game,0); VIM:SendMouseButtonEvent(0,0,0,false,game,0)
+        end
+    else
+        -- РЕЖИМ ПОИСКА / ВЫХОДА ИЗ КВАДРАТА
+        local bestPath, sectors = AnalyzeSpace()
+        if sectors < 3 then
+            -- МЫ В КВАДРАТЕ: Крутимся (Spin-Scan)
+            root.CFrame = root.CFrame * CFrame.Angles(0, math.rad(20), 0)
+            hum:Move(Vector3.new(0,0,-1), true)
+            hum.Jump = true
+        else
+            -- ОТКРЫТОЕ ПРОСТРАНСТВО: Идем по лидару
+            local targetCF = CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + bestPath)
+            Camera.CFrame = Camera.CFrame:Lerp(targetCF, 0.1)
+            hum:Move(Vector3.new(0,0,-1), true)
+        end
+    end
+
+    -- Прыжок от затыка
+    if workspace:Raycast(root.Position, root.CFrame.LookVector * 4, rayParams) then hum.Jump = true end
 end)
 
--- [ ИНТЕРФЕЙС ]
-if CoreGui:FindFirstChild("EzzClickV19") then CoreGui.EzzClickV19:Destroy() end
-local sg = Instance.new("ScreenGui", CoreGui); sg.Name = "EzzClickV19"
+-- [ GUI CLASSIC ]
+if CoreGui:FindFirstChild("EzzSpinV15") then CoreGui.EzzSpinV15:Destroy() end
+local sg = Instance.new("ScreenGui", CoreGui); sg.Name = "EzzSpinV15"
 local m = Instance.new("Frame", sg)
-m.Size = UDim2.new(0, 200, 0, 250); m.Position = UDim2.new(0.5, -100, 0.5, -125); m.BackgroundColor3 = Color3.new(0,0,0)
-Instance.new("UIStroke", m).Color = Color3.fromRGB(0, 255, 120)
-
+m.Size = UDim2.new(0,200,0,200); m.Position = UDim2.new(0.5,-100,0.5,-100); m.BackgroundColor3 = Color3.new(0,0,0)
+Instance.new("UIStroke", m).Color = Color3.new(1,0,0)
 local l = Instance.new("Frame", m); l.Position = UDim2.new(0,10,0,45); l.Size = UDim2.new(1,-20,1,-55); l.BackgroundTransparency = 1
 Instance.new("UIListLayout", l).Padding = UDim.new(0,5)
 
 local function AddT(txt, f)
-    local b = Instance.new("TextButton", l); b.Size = UDim2.new(1,0,0,40); b.BackgroundColor3 = Color3.new(0.1,0.1,0.1); b.Text = txt .. ": OFF"; b.TextColor3 = Color3.new(1,1,1)
+    local b = Instance.new("TextButton", l); b.Size = UDim2.new(1,0,0,40); b.Text = txt..": OFF"; b.BackgroundColor3 = Color3.new(0.1,0.1,0.1); b.TextColor3 = Color3.new(1,1,1)
     b.MouseButton1Click:Connect(function()
         Settings[f] = not Settings[f]
-        b.Text = txt .. (Settings[f] and ": ON" or ": OFF")
-        b.BackgroundColor3 = Settings[f] and Color3.fromRGB(0, 150, 80) or Color3.new(0.1,0.1,0.1)
+        b.Text = txt..(Settings[f] and ": ON" or ": OFF")
+        b.BackgroundColor3 = Settings[f] and Color3.new(0.5,0,0) or Color3.new(0.1,0.1,0.1)
     end)
 end
 
-AddT("AI ACTIVE", "Active")
-AddT("AUTO-SHOOT", "Shoot")
-AddT("AUTO-CLICK", "AutoClick")
-AddT("DIAMOND ESP", "ESP")
+AddT("ЗАПУСК AI", "Active")
+AddT("АВТО-ОГОНЬ", "Shoot")
+AddT("ВХ (РОМБЫ)", "ESP")
 
 -- Drag
 local d, s, p
