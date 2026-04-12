@@ -1,7 +1,8 @@
 -- ==========================================
---  E Z Z  F L I C K  v17.5 (FREE ROAM AI)
---  New: Smart Wandering (Гуляет по карте)
---  Fix: 360 Rage Aim + Infinite Range
+--  E Z Z  F L I C K  v19.0 (ULTIMATE BOT)
+--  New: Auto-Space on Death (2 Jumps)
+--  New: Auto-Deploy (2 Clicks)
+--  Fix: 360 Rage Aim + Smart Wander
 --  Rule: NOTHING DELETED
 -- ==========================================
 
@@ -26,6 +27,8 @@ local Settings = {
 
 local curHue = 0
 local wanderAngle = 0
+local isDeploying = false 
+local isDeadProc = false -- Флаг для авто-прыжка
 local rayParams = RaycastParams.new()
 rayParams.FilterType = Enum.RaycastFilterType.Exclude
 
@@ -56,9 +59,48 @@ end
 -- [ ГЛАВНЫЙ ЦИКЛ ]
 RunService.RenderStepped:Connect(function()
     curHue = (curHue + 0.005) % 1
+    
     local char = LocalPlayer.Character
     local hum = char and char:FindFirstChild("Humanoid")
     local root = char and char:FindFirstChild("HumanoidRootPart")
+
+    -- === БЛОК АВТО-ПРЫЖКА ПРИ СМЕРТИ (НОВОЕ) ===
+    if hum and hum.Health <= 0 and not isDeadProc then
+        isDeadProc = true
+        task.spawn(function()
+            task.wait(0.2)
+            for i = 1, 2 do
+                VIM:SendKeyEvent(true, Enum.KeyCode.Space, false, game)
+                VIM:SendKeyEvent(false, Enum.KeyCode.Space, false, game)
+                task.wait(0.1)
+            end
+            while hum and hum.Health <= 0 do task.wait() end
+            isDeadProc = false
+        end)
+    end
+
+    -- === БЛОК АВТО-ДЕПЛОЯ ===
+    local pGui = LocalPlayer:FindFirstChild("PlayerGui")
+    if pGui and not isDeploying then
+        for _, v in pairs(pGui:GetDescendants()) do
+            if v:IsA("TextButton") and v.Visible and (v.Text:lower():find("разместить") or v.Text:lower():find("deploy")) then
+                isDeploying = true
+                task.spawn(function()
+                    local pos = v.AbsolutePosition
+                    local size = v.AbsoluteSize
+                    for i = 1, 2 do 
+                        VIM:SendMouseButtonEvent(pos.X + (size.X/2), pos.Y + (size.Y/2) + 58, 0, true, game, 0)
+                        VIM:SendMouseButtonEvent(pos.X + (size.X/2), pos.Y + (size.Y/2) + 58, 0, false, game, 0)
+                        task.wait(0.1)
+                    end
+                    task.wait(3) 
+                    isDeploying = false
+                end)
+                break
+            end
+        end
+    end
+
     if not char or not hum or not root then return end
 
     local currentTarget = GetRageTarget()
@@ -78,27 +120,22 @@ RunService.RenderStepped:Connect(function()
         rayParams.FilterDescendantsInstances = {char}
         
         if currentTarget then
-            -- Боевой режим: Идем на врага + стрейфы
             local moveVec = (currentTarget.Position - root.Position).Unit
             local strafe = root.CFrame.RightVector * math.sin(tick() * 7) * 1.2
             hum:Move(moveVec + strafe, false)
         else
-            -- Режим прогулки: Бот гуляет и поворачивает
-            wanderAngle = wanderAngle + (math.noise(tick() * 0.5) * 2) -- Случайные повороты
+            wanderAngle = wanderAngle + (math.noise(tick() * 0.5) * 2) 
             local forward = (root.CFrame * CFrame.Angles(0, math.rad(wanderAngle), 0)).LookVector
             
-            -- Проверка стены перед собой
             local wall = workspace:Raycast(root.Position, forward * 10, rayParams)
             if wall then
-                wanderAngle = wanderAngle + 90 -- Резко поворачиваем если стена
+                wanderAngle = wanderAngle + 90 
             end
             
             hum:Move(forward, false)
-            -- Плавно поворачиваем камеру туда, куда идем
             Camera.CFrame = Camera.CFrame:Lerp(CFrame.new(Camera.CFrame.Position, Camera.CFrame.Position + forward), 0.05)
         end
         
-        -- Авто-прыжок
         if workspace:Raycast(root.Position, root.CFrame.LookVector * 5, rayParams) then 
             hum.Jump = true 
         end
